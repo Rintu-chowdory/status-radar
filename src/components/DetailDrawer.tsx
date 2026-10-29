@@ -118,7 +118,7 @@ export function DetailDrawer({ service, onClose }: { service: ServiceState; onCl
             <IncidentBars days={history} />
             <p className="legend">
               {history.reduce((sum, d) => sum + d.minutes, 0) > 0
-                ? `${formatMinutes(history.reduce((sum, d) => sum + d.minutes, 0))} in reported incidents over 30 days`
+                ? `${formatMinutes(history.reduce((sum, d) => sum + d.minutes, 0))} with at least one incident open over 30 days (overlaps merged)`
                 : 'No reported incidents in the last 30 days'}
             </p>
           </section>

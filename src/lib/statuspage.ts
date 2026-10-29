@@ -100,45 +100,75 @@ export function activeIncidents(summary: SpSummary | null): SpIncident[] {
   return summary?.incidents ?? [];
 }
 
-/** Groups incidents by calendar day and totals affected minutes, for the history chart. */
+/**
+ * Per-day incident time for the history chart.
+ *
+ * Overlapping incidents are merged inside a day, so the number means "time with at
+ * least one incident open" rather than the sum of every incident's duration. Providers
+ * like Cloudflare post many simultaneous regional incidents, and a summed figure would
+ * look far worse than the day actually was.
+ */
 export function incidentDays(incidents: SpIncident[], days: number): IncidentDay[] {
+  const dayMs = 86_400_000;
   const now = new Date();
-  const buckets = new Map<string, IncidentDay>();
-
-  for (let i = days - 1; i >= 0; i--) {
-    const d = new Date(now.getTime() - i * 86_400_000);
-    const key = d.toISOString().slice(0, 10);
-    buckets.set(key, { date: key, minutes: 0, count: 0, worst: 'none' });
-  }
-
   const impactRank: Record<string, number> = { none: 0, minor: 1, major: 2, critical: 3 };
 
+  const intervals: { start: number; end: number; impact: IncidentDay['worst'] }[] = [];
   for (const incident of incidents) {
     if (incident.impact === 'none') continue;
     const start = new Date(incident.created_at).getTime();
-    const end = incident.resolved_at ? new Date(incident.resolved_at).getTime() : Date.now();
     if (!Number.isFinite(start)) continue;
-
-    const dayCount = Math.ceil((end - start) / 86_400_000) + 1;
-    for (let offset = 0; offset < dayCount; offset++) {
-      const dayStart = new Date(start + offset * 86_400_000);
-      dayStart.setHours(0, 0, 0, 0);
-      const key = new Date(dayStart.getTime() + 12 * 3_600_000).toISOString().slice(0, 10);
-      const bucket = buckets.get(key);
-      if (!bucket) continue;
-
-      const overlapStart = Math.max(start, dayStart.getTime());
-      const overlapEnd = Math.min(end, dayStart.getTime() + 86_400_000);
-      if (overlapEnd <= overlapStart) continue;
-
-      bucket.minutes += Math.round((overlapEnd - overlapStart) / 60_000);
-      bucket.count += 1;
-      const impact = incident.impact as IncidentDay['worst'];
-      if (impactRank[impact] > impactRank[bucket.worst]) bucket.worst = impact;
-    }
+    const end = incident.resolved_at ? new Date(incident.resolved_at).getTime() : Date.now();
+    if (!Number.isFinite(end) || end <= start) continue;
+    intervals.push({ start, end, impact: incident.impact as IncidentDay['worst'] });
   }
 
-  return [...buckets.values()];
+  const localKey = (d: Date) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+  const buckets: IncidentDay[] = [];
+  for (let i = days - 1; i >= 0; i--) {
+    const dayStart = new Date(now.getTime() - i * dayMs);
+    dayStart.setHours(0, 0, 0, 0);
+    const dayEnd = dayStart.getTime() + dayMs;
+
+    const overlaps = intervals
+      .filter((iv) => iv.end > dayStart.getTime() && iv.start < dayEnd)
+      .map((iv) => ({
+        start: Math.max(iv.start, dayStart.getTime()),
+        end: Math.min(iv.end, dayEnd),
+        impact: iv.impact,
+      }))
+      .sort((a, b) => a.start - b.start);
+
+    let minutes = 0;
+    let worst: IncidentDay['worst'] = 'none';
+
+    if (overlaps.length) {
+      let cursorStart = overlaps[0].start;
+      let cursorEnd = overlaps[0].end;
+      for (const iv of overlaps) {
+        if (impactRank[iv.impact] > impactRank[worst]) worst = iv.impact;
+        if (iv.start <= cursorEnd) {
+          cursorEnd = Math.max(cursorEnd, iv.end);
+        } else {
+          minutes += cursorEnd - cursorStart;
+          cursorStart = iv.start;
+          cursorEnd = iv.end;
+        }
+      }
+      minutes += cursorEnd - cursorStart;
+    }
+
+    buckets.push({
+      date: localKey(dayStart),
+      minutes: Math.round(minutes / 60_000),
+      count: overlaps.length,
+      worst,
+    });
+  }
+
+  return buckets;
 }
 
 export function formatMinutes(minutes: number): string {

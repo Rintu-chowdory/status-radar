@@ -14,7 +14,9 @@ Statuspage JSON API. No scraping, no API keys, no backend.
   component sitting in `major_outage` wins over a stale indicator.
 - **Service detail** (click any card): open incidents with impact and first update,
   scheduled maintenance, components grouped as the provider groups them, and a 30-day
-  incident chart built from `/api/v2/incidents.json`.
+  incident chart built from `/api/v2/incidents.json`. Overlapping incidents are merged
+  per day, so the figure is time with at least one incident open, not a sum that a
+  provider with many simultaneous regional incidents could inflate.
 - **Latency history.** Each check is timed around the fetch and plotted as a sparkline.
 - **Filters:** search, category chips, "problems only", sort by severity, name or latency.
 - Survives reload without a blank screen: the last snapshot is cached locally and
