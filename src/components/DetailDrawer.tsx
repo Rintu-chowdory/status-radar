@@ -45,12 +45,12 @@ function groupComponents(components: SpComponent[]) {
 }
 
 export function DetailDrawer({ service, onClose }: { service: ServiceState; onClose: () => void }) {
-  const cache = useBoard((s) => s.incidents[service.def.id]);
-  const loadIncidents = useBoard((s) => s.loadIncidents);
+  const detail = useBoard((s) => s.detail[service.def.id]);
+  const loadDetail = useBoard((s) => s.loadDetail);
 
   useEffect(() => {
-    void loadIncidents(service.def.id);
-  }, [service.def.id, loadIncidents]);
+    void loadDetail(service.def.id);
+  }, [service.def.id, loadDetail]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -60,18 +60,20 @@ export function DetailDrawer({ service, onClose }: { service: ServiceState; onCl
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
 
+  const payload = detail?.payload ?? null;
+  const summary = payload?.summary ?? null;
   const tone = TONE[service.severity] ?? TONE.unknown;
-  const components = useMemo(() => groupComponents(service.summary?.components ?? []), [service.summary]);
-  const history = useMemo(() => incidentDays(cache?.items ?? [], 30), [cache]);
+  const components = useMemo(() => groupComponents(summary?.components ?? []), [summary]);
+  const history = useMemo(() => incidentDays(payload?.incidents ?? [], 30), [payload]);
   const sortedLatency = useMemo(() => {
     if (!service.history.length) return null;
     const sorted = [...service.history].sort((a, b) => a - b);
     return sorted[Math.floor(sorted.length / 2)];
   }, [service.history]);
 
-  const activeIncidents = service.summary?.incidents ?? [];
-  const maintenances = service.summary?.scheduled_maintenances ?? [];
-  const recent = (cache?.items ?? []).filter((i) => i.impact !== 'none').slice(0, 6);
+  const activeIncidents = summary?.incidents ?? [];
+  const maintenances = summary?.scheduled_maintenances ?? [];
+  const recent = (payload?.incidents ?? []).filter((i) => i.impact !== 'none').slice(0, 6);
 
   return (
     <>
@@ -89,7 +91,7 @@ export function DetailDrawer({ service, onClose }: { service: ServiceState; onCl
 
         <div className="drawer-stats">
           <div>
-            <label>Median latency</label>
+            <label>Upstream median</label>
             <strong>{sortedLatency !== null ? `${sortedLatency} ms` : '—'}</strong>
           </div>
           <div>
@@ -98,21 +100,24 @@ export function DetailDrawer({ service, onClose }: { service: ServiceState; onCl
           </div>
           <div>
             <label>Components</label>
-            <strong>{(service.summary?.components ?? []).filter((c) => !c.group).length}</strong>
+            <strong>{(summary?.components ?? []).filter((c) => !c.group).length}</strong>
           </div>
           <div>
-            <label>Last check</label>
-            <strong>{formatAgo(service.checkedAt)}</strong>
+            <label>Last update</label>
+            <strong>{payload?.fetchedAt ? formatAgo(payload.fetchedAt) : '—'}</strong>
           </div>
         </div>
 
-        {service.error && (
+        {(payload?.error || service.error) && (
           <p className="warn">
-            Could not read the status API just now ({service.error}). Values below may be stale.
+            Could not read the status API just now ({payload?.error ?? service.error}). Values below may be
+            stale.
           </p>
         )}
 
-        {service.summary && (
+        {detail?.loading && !summary && <p className="legend">Loading details…</p>}
+
+        {summary && (
           <section>
             <h3>Last 30 days</h3>
             <IncidentBars days={history} />
@@ -175,9 +180,8 @@ export function DetailDrawer({ service, onClose }: { service: ServiceState; onCl
 
         <section>
           <h3>Recent incidents</h3>
-          {cache?.loading && !cache.items.length && <p className="legend">Loading incident history…</p>}
-          {cache?.error && <p className="warn">Incident history unavailable ({cache.error}).</p>}
-          {!cache?.loading && !recent.length && !cache?.error && <p className="legend">Nothing reported recently.</p>}
+          {detail?.loading && !payload?.incidents.length && <p className="legend">Loading incident history…</p>}
+          {!detail?.loading && !recent.length && !payload?.error && <p className="legend">Nothing reported recently.</p>}
           {recent.map((incident) => {
             const start = new Date(incident.created_at);
             const end = incident.resolved_at ? new Date(incident.resolved_at) : null;

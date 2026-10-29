@@ -418,3 +418,36 @@ body {
   .search { flex: 1 1 100%; }
   .toolbar-right { margin-left: 0; }
 }
+
+/* ---------- degraded-data affordances ---------- */
+.banner {
+  margin-top: 16px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #ffd88a;
+  background: rgba(255, 200, 87, 0.09);
+  border: 1px solid rgba(255, 200, 87, 0.28);
+}
+.banner strong { color: #ffe0a3; }
+
+.card.stale { background: linear-gradient(180deg, #14120c, #0b1017); }
+
+.incident-line.warn-text { color: #ffc857; }
+
+.warn-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 13px;
+  height: 13px;
+  margin-right: 5px;
+  border-radius: 50%;
+  background: rgba(255, 200, 87, 0.18);
+  color: #ffc857;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: help;
+}

@@ -38,19 +38,38 @@ Statuspage JSON API. No scraping, no API keys, no backend.
 ## How it works
 
 ```
-browser ──fetch──> <provider>/api/v2/summary.json   (CORS: *)
-        └─fetch──> <provider>/api/v2/incidents.json (detail view only, 5 min cache)
-                        │
-                        v
-              normalize -> severity (indicator vs components)
-                        │
-              zustand store (snapshot cached in localStorage)
-                        │
-                  cards / drawer
+browser ──30s──> /api/status ──45s module cache──> <provider>/api/v2/status.json  (~220 B each)
+   │                  │
+   │                  └── CDN: s-maxage=45, stale-while-revalidate=60
+   │
+   └──on click──> /api/service?id=x ──60s cache──> summary.json + incidents.json
+                          │
+                          v
+                 severity, components, incident history
 ```
 
-Adding a service is one line in `src/lib/services.ts`. Every entry there was verified to
-return CORS-enabled JSON from a browser.
+Two functions, one job each:
+
+| Endpoint | Cache | Payload |
+| --- | --- | --- |
+| `GET /api/status` | 45s module cache + 45s CDN | all 28 services, ~220 bytes each |
+| `GET /api/service?id=<id>` | 60s module cache + 60s CDN | components + incident history for one |
+
+**Why a proxy at all.** Thirty visitors polling every 30 seconds would be 30x the load on
+each provider. Through the proxy, providers see at most one sweep per 45 seconds no matter
+how many people have the board open, and the CDN answers most of those without waking the
+function. The board reads `status.json` (~220 bytes) rather than `summary.json`; the heavy
+summary is fetched only when someone opens a service, and it is cached separately
+(Cloudflare's is 223 KB).
+
+**A failed check is never shown as healthy.** If a provider does not answer, the proxy
+keeps the last known state, marks it `stale` and passes the error through, so the card
+keeps its real colour but gains a warning icon and stops claiming to be current. Once the
+last successful fetch is more than 5 minutes old, the state drops to `unknown` and the
+badge turns grey. Verified with a stubbed upstream: fresh failure → previous state + error,
+6-minute-old failure → `unknown`.
+
+Adding a service is one line in `src/lib/services.ts`; the proxy shares that catalog.
 
 ### The CORS trap worth knowing
 
@@ -64,9 +83,21 @@ the final host.
 
 ```bash
 npm install
-npm run dev      # http://localhost:5173
-npm run build    # typecheck + production build
+npm run dev       # UI only, on :5173 - /api/* is not served, so the board shows the offline banner
+npm run dev:full  # vercel dev, serves the UI and both functions together (what you want)
+npm run build     # typecheck (src + api) + production build
 ```
+
+`npm run dev` alone cannot reach `/api/status`, which is the intended behaviour: the UI
+says live data is unavailable instead of quietly falling back to something else.
+
+## Gotcha: ESM functions on Vercel
+
+`package.json` sets `"type": "module"`, so the compiled functions run as ESM where
+extensionless imports do not resolve. `import { boardStatuses } from './_lib'` deployed
+fine and then failed at runtime with `ERR_MODULE_NOT_FOUND`. Every import inside `api/`
+(and into `src/lib/`) therefore carries an explicit `.js` extension. `vercel build` plus a
+local invoke of the compiled handler catches this before it reaches production.
 
 ## Deployment
 

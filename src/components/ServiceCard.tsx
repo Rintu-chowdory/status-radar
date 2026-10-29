@@ -19,41 +19,42 @@ const LABEL: Record<string, string> = {
 };
 
 export function ServiceCard({ service, onOpen }: { service: ServiceState; onOpen: () => void }) {
-  const { def, severity, summary, history, error, loading } = service;
+  const { def, severity, description, history, error, loading, stale, fetchedAt } = service;
   const tone = TONE[severity] ?? TONE.unknown;
-  const incidents = summary?.incidents ?? [];
-  const degradedComponents = (summary?.components ?? []).filter(
-    (c) => !c.group && c.status !== 'operational' && c.status !== 'under_maintenance',
-  );
-  const latency = history.length ? history[history.length - 1] : null;
+  const latest = history.length ? history[history.length - 1] : 0;
 
   return (
-    <button className="card" style={{ borderColor: `color-mix(in srgb, ${tone} 26%, transparent)` }} onClick={onOpen}>
+    <button
+      className={`card${stale ? ' stale' : ''}`}
+      style={{ borderColor: `color-mix(in srgb, ${tone} 26%, transparent)` }}
+      onClick={onOpen}
+    >
       <div className="card-top">
         <span className="dot" style={{ background: tone, boxShadow: `0 0 10px ${tone}` }} />
         <span className="name">{def.name}</span>
         <span className="state" style={{ color: tone }}>
-          {loading && !summary ? '…' : LABEL[severity]}
+          {loading && !fetchedAt ? '…' : LABEL[severity]}
         </span>
       </div>
 
       <div className="card-mid">
         <span className="category">{def.category}</span>
-        {incidents.length > 0 ? (
-          <span className="incident-line" title={incidents[0]?.name}>
-            {incidents.length} open · {incidents[0]?.name}
-          </span>
-        ) : degradedComponents.length > 0 && severity === 'operational' ? (
-          <span className="incident-line">{degradedComponents.length} component(s) affected</span>
-        ) : (
-          <span className="incident-line muted">{summary?.status?.description ?? 'No incidents reported'}</span>
-        )}
+        <span className={`incident-line${error ? ' warn-text' : ' muted'}`} title={error ? `Last check failed: ${error}` : undefined}>
+          {error ? (fetchedAt ? 'Last check failed, showing earlier data' : 'Status unavailable') : description}
+        </span>
       </div>
 
       <div className="card-foot">
-        <span className="latency">{latency !== null ? `${latency} ms` : '—'}</span>
-        <Sparkline values={history} tone={tone} />
-        <span className={`checked${error ? ' err' : ''}`}>{error ? 'check failed' : formatAgo(service.checkedAt)}</span>
+        <span className="latency">{latest ? `${latest} ms` : '—'}</span>
+        <Sparkline values={history} tone={stale ? '#ffc857' : tone} />
+        <span className={`checked${error ? ' err' : ''}`}>
+          {error && (
+            <span className="warn-icon" title={`Last check failed: ${error}`} aria-label={`Last check failed: ${error}`}>
+              !
+            </span>
+          )}
+          {fetchedAt ? ` Updated ${formatAgo(fetchedAt)}` : 'No data yet'}
+        </span>
       </div>
     </button>
   );

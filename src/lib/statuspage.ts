@@ -1,51 +1,21 @@
 import type { IncidentDay, Severity, SpIncident, SpSummary } from './types';
 
-const TIMEOUT_MS = 12_000;
-
-export interface SummaryResult {
-  summary: SpSummary;
-  latencyMs: number;
-}
-
-/**
- * Statuspage summary. Latency is measured around the fetch, so it describes the path
- * between this browser and the provider's status API, not the health of the service
- * itself. The UI says so explicitly.
- */
-export async function fetchSummary(base: string): Promise<SummaryResult> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
-  const started = performance.now();
-  try {
-    const res = await fetch(`${base}/api/v2/summary.json`, {
-      signal: controller.signal,
-      cache: 'no-store',
-      headers: { Accept: 'application/json' },
-    });
-    const latencyMs = performance.now() - started;
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const summary = (await res.json()) as SpSummary;
-    if (!summary?.status) throw new Error('unexpected payload');
-    return { summary, latencyMs };
-  } finally {
-    clearTimeout(timer);
+/** The board reads status.json, so severity comes from the page indicator alone. */
+export function severityFromIndicator(indicator: string | undefined): Severity {
+  switch (indicator) {
+    case 'none':
+      return 'operational';
+    case 'minor':
+      return 'degraded';
+    case 'major':
+    case 'critical':
+      return 'outage';
+    case 'maintenance':
+      return 'maintenance';
+    default:
+      return 'unknown';
   }
 }
-
-export async function fetchIncidents(base: string): Promise<SpIncident[]> {
-  const res = await fetch(`${base}/api/v2/incidents.json`, { cache: 'no-store' });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const data = (await res.json()) as { incidents?: SpIncident[] };
-  return data.incidents ?? [];
-}
-
-const INDICATOR_SEVERITY: Record<string, Severity> = {
-  none: 'operational',
-  minor: 'degraded',
-  major: 'outage',
-  critical: 'outage',
-  maintenance: 'maintenance',
-};
 
 const COMPONENT_SEVERITY: Record<string, Severity> = {
   operational: 'operational',
@@ -72,7 +42,7 @@ export function worst(a: Severity, b: Severity): Severity {
  * real outage even when the indicator lags, so the worse of the two wins.
  */
 export function severityOf(summary: SpSummary): Severity {
-  let severity = INDICATOR_SEVERITY[summary.status?.indicator ?? 'none'] ?? 'unknown';
+  let severity = severityFromIndicator(summary.status?.indicator);
   for (const component of summary.components ?? []) {
     if (component.group) continue;
     const s = COMPONENT_SEVERITY[component.status];
@@ -94,10 +64,6 @@ export function severityLabel(severity: Severity): string {
     default:
       return 'Unknown';
   }
-}
-
-export function activeIncidents(summary: SpSummary | null): SpIncident[] {
-  return summary?.incidents ?? [];
 }
 
 /**

@@ -6,16 +6,17 @@ import { ServiceCard } from './components/ServiceCard';
 import { DetailDrawer } from './components/DetailDrawer';
 import type { ServiceState, Severity } from './lib/types';
 
-const REFRESH_MS = 60_000;
+const REFRESH_MS = 30_000;
 const SEVERITY_ORDER: Severity[] = ['outage', 'degraded', 'maintenance', 'operational', 'unknown'];
 
 export default function App() {
   const services = useBoard((s) => s.services);
   const filter = useBoard((s) => s.filter);
   const setFilter = useBoard((s) => s.setFilter);
-  const refreshedAt = useBoard((s) => s.refreshedAt);
-  const refreshing = useBoard((s) => s.refreshing);
-  const refreshAll = useBoard((s) => s.refreshAll);
+  const generatedAt = useBoard((s) => s.generatedAt);
+  const apiError = useBoard((s) => s.apiError);
+  const loading = useBoard((s) => s.loading);
+  const refresh = useBoard((s) => s.refresh);
   const hydrate = useBoard((s) => s.hydrate);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -23,14 +24,15 @@ export default function App() {
 
   useEffect(() => {
     hydrate();
-    void refreshAll();
-    const refreshTimer = window.setInterval(() => void refreshAll({ silent: true }), REFRESH_MS);
+    void refresh();
+    const refreshTimer = window.setInterval(() => void refresh(), REFRESH_MS);
+    // keeps every "Updated 12s ago" label truthful without re-fetching anything
     const clockTimer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => {
       window.clearInterval(refreshTimer);
       window.clearInterval(clockTimer);
     };
-  }, [hydrate, refreshAll]);
+  }, [hydrate, refresh]);
 
   const list = useMemo(() => {
     const query = filter.query.trim().toLowerCase();
@@ -58,7 +60,7 @@ export default function App() {
   }, [services]);
 
   const problems = totals.degraded + totals.outage;
-  const countdown = Math.max(0, Math.round((REFRESH_MS - (now - refreshedAt)) / 1000));
+  const countdown = generatedAt ? Math.max(0, Math.round((REFRESH_MS - (now - generatedAt)) / 1000)) : 0;
   const selected = selectedId ? services[selectedId] : null;
 
   return (
@@ -85,13 +87,20 @@ export default function App() {
         </div>
 
         <div className="refresh">
-          <span className="stamp">{refreshedAt ? `updated ${formatAgo(refreshedAt)}` : 'loading…'}</span>
+          <span className="stamp">{generatedAt ? `updated ${formatAgo(generatedAt)}` : 'loading…'}</span>
           <span className="countdown">next in {countdown}s</span>
-          <button className="btn" onClick={() => void refreshAll()} disabled={refreshing}>
-            {refreshing ? 'Refreshing…' : 'Refresh'}
+          <button className="btn" onClick={() => void refresh()} disabled={loading}>
+            {loading ? 'Refreshing…' : 'Refresh'}
           </button>
         </div>
       </header>
+
+      {apiError && (
+        <div className="banner" role="status">
+          <strong>Live data unavailable</strong> — showing the last known state
+          {generatedAt ? ` from ${formatAgo(generatedAt)}` : ''}. ({apiError})
+        </div>
+      )}
 
       <div className="toolbar">
         <input
@@ -147,9 +156,10 @@ export default function App() {
       </main>
 
       <footer className="foot">
-        Status, incidents and components come from each provider's own Statuspage JSON API. The
-        millisecond figure is your browser's round trip to that status API, not a measurement of
-        the service itself. User reports and outage maps need a backend and arrive in a later pass.
+        Status, incidents and components come from each provider's own Statuspage JSON API, fetched by a
+        small proxy that caches results for 45 seconds, so providers see one request per interval instead
+        of one per visitor. The millisecond figure is the proxy's round trip to that status API, not a probe
+        of the service itself, and a failed check is labelled as failed rather than shown as healthy.
       </footer>
 
       {selected && <DetailDrawer service={selected} onClose={() => setSelectedId(null)} />}

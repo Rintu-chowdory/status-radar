@@ -52,12 +52,48 @@ export interface ServiceState {
   severity: Severity;
   /** the provider's own words for the current state */
   description: string;
-  summary: SpSummary | null;
-  /** client-side latency samples to the provider's status API, newest last */
+  /** newest last; each sample is the upstream response time from the proxy */
   history: number[];
+  /** last successful upstream fetch */
+  fetchedAt: number;
+  /** last attempt, successful or not */
   checkedAt: number;
+  latencyMs: number;
   error: string | null;
+  /** previous data being shown because the latest attempt failed */
+  stale: boolean;
   loading: boolean;
+}
+
+/** One service as reported by the /api/status function. */
+export interface StatusEntry {
+  id: string;
+  name: string;
+  category: Category;
+  severity: Severity;
+  description: string;
+  fetchedAt: number;
+  checkedAt: number;
+  latencyMs: number;
+  error: string | null;
+  stale: boolean;
+}
+
+export interface StatusPayload {
+  generatedAt: number;
+  servedFrom: 'cache' | 'refreshed';
+  services: StatusEntry[];
+}
+
+export interface DetailPayload {
+  id: string;
+  name: string;
+  summary: SpSummary | null;
+  incidents: SpIncident[];
+  severity: Severity;
+  fetchedAt: number;
+  error: string | null;
+  stale: boolean;
 }
 
 export interface IncidentDay {
